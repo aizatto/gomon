@@ -1,15 +1,11 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -110,44 +106,14 @@ func Trigger(command string) error {
 	log.Printf("Running: %s", command)
 	cmd := exec.Command("sh", "-c", command)
 
-	stdo, err := cmd.StdoutPipe()
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Start()
 	if err != nil {
 		return err
 	}
-
-	stde, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-
-	buff := new(bytes.Buffer)
-
-	bufferr := true
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	buflock := sync.Mutex{}
-	go logOutput(
-		&wg, stde,
-		func(s string, args ...interface{}) {
-			// log.Warn(s, args...)
-			if bufferr {
-				buflock.Lock()
-				defer buflock.Unlock()
-				fmt.Fprintf(buff, "%s\n", args...)
-			}
-		},
-	)
-	go logOutput(&wg, stdo, log.Printf)
-
-	wg.Wait()
 
 	eret := cmd.Wait()
-	fmt.Print(buff.String())
 
 	switch cmd.ProcessState.ExitCode() {
 	case 0:
@@ -161,16 +127,4 @@ func Trigger(command string) error {
 	}
 
 	return nil
-}
-
-func logOutput(wg *sync.WaitGroup, fp io.ReadCloser, out func(string, ...interface{})) {
-	defer wg.Done()
-	r := bufio.NewReader(fp)
-	for {
-		line, _, err := r.ReadLine()
-		if err != nil {
-			return
-		}
-		out("%s", string(line))
-	}
 }
