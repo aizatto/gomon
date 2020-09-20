@@ -5,7 +5,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -56,9 +58,21 @@ func Run(patterns []string, command string, debounce int) error {
 	defer watcher.Stop()
 
 	log.Println(">> start")
-	TimeTrigger(command)
+	cmd := TriggerCommand(command)
+
+	killsignal := make(chan os.Signal, 1)
+	signal.Notify(killsignal, os.Interrupt)
+	go func() {
+		<-killsignal
+		KillProcessGroup(cmd)
+		os.Exit(1)
+	}()
 
 	for ch := range chs {
+		if cmd != nil {
+			KillProcessGroup(cmd)
+		}
+
 		if ch == nil {
 			break
 		}
@@ -68,10 +82,22 @@ func Run(patterns []string, command string, debounce int) error {
 		PrintPaths(color.Green, "Changed/Added", paths)
 		PrintPaths(color.Red, "Deleted", ch.Deleted)
 
-		TimeTrigger(command)
+		cmd = TriggerCommand(command)
 	}
 
 	return nil
+}
+
+// https://varunksaini.com/posts/kiling-processes-in-go/
+func KillProcessGroup(cmd *exec.Cmd) {
+	pgid, err := syscall.Getpgid(cmd.Process.Pid)
+	if err == nil {
+		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+			log.Println(err)
+		}
+	} else {
+		log.Println(err)
+	}
 }
 
 func PrintPaths(fn func(string, ...interface{}), title string, paths []string) {
@@ -91,40 +117,32 @@ func PrintPaths(fn func(string, ...interface{}), title string, paths []string) {
 	}
 }
 
-func TimeTrigger(command string) error {
-	start := time.Now()
-	fmt.Println("")
-	err := Trigger(command)
-	log.Printf(">> done: %s\n\n", time.Since(start))
-	if err != nil {
-		panic(err)
-	}
-	return nil
-}
-
-func Trigger(command string) error {
+func TriggerCommand(command string) *exec.Cmd {
 	log.Printf("Running: %s", command)
+	start := time.Now()
 	cmd := exec.Command("sh", "-c", command)
+	// We need this to kill child processes
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Start()
 	if err != nil {
-		return err
+		log.Println(err)
+		return cmd
 	}
 
-	eret := cmd.Wait()
+	go func() {
+		cmd.Wait()
+		log.Printf(">> done: %s\n\n", time.Since(start))
 
-	switch cmd.ProcessState.ExitCode() {
-	case 0:
-		color.Green(cmd.ProcessState.String())
-	default:
-		color.Red(cmd.ProcessState.String())
-	}
+		switch cmd.ProcessState.ExitCode() {
+		case 0:
+			color.Green(cmd.ProcessState.String())
+		default:
+			color.Red(cmd.ProcessState.String())
+		}
+	}()
 
-	if err != nil {
-		fmt.Print(eret)
-	}
-
-	return nil
+	return cmd
 }

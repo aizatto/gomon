@@ -6,6 +6,7 @@ Some problem with alternative watchers:
 
 - They rerun the command when the exit code is non zero
 - They are a task runner
+- Do not kill child processes
 
 I only want to re run the command on file system changes.
 
@@ -46,3 +47,7 @@ https://github.com/cortesi/modd/blob/06afa96cb8f7fa492c2eb649d1b569f77fa986f5/mo
 https://gobyexample.com/channel-synchronization
 https://golang.org/pkg/os/exec/#Command
 https://gobyexample.com/command-line-flags
+
+## Killing Child Processes
+
+https://varunksaini.com/posts/kiling-processes-in-go/
