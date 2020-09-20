@@ -8,92 +8,106 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	filepath "path"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/cortesi/moddwatch"
+	"github.com/fatih/color"
 )
 
 var CLI struct {
-	Watch struct {
-		Paths   []string `arg name:"path" help:"Paths to watch." type:"path" required`
-		Command []string `arg name:"command" help:"Command to run. required"`
-	} `cmd help:"Watch paths."`
+	Debounce int      `name:"debounce" help:"Delay in milliseconds before last change" default:"500" short:"d"`
+	Patterns []string `arg name:"patterns" help:"Patterns to watch." default:"**"`
+	Command  []string `arg name:"command" help:"Command to run" default:" "`
 }
 
 func main() {
-	ctx := kong.Parse(&CLI)
-	switch ctx.Command() {
-	case "watch <path> <command>":
-		for _, path := range CLI.Watch.Paths {
-			PreRun(path, strings.Join(CLI.Watch.Command, " "))
-		}
-	default:
-		fmt.Print(ctx.Command())
+	kong.Parse(&CLI)
+
+	args := CLI
+	patterns := args.Patterns
+	if len(patterns) == 0 {
+		patterns = []string{"**"}
 	}
-}
 
-func PreRun(path string, command string) {
-	var err error
-
-	wd, err := os.Getwd()
+	color.Green("Watching: %s", strings.Join(patterns, " "))
+	err := Run(patterns, strings.Join(args.Command, " "), args.Debounce)
 	if err != nil {
 		panic(err)
 	}
-
-	if !strings.HasPrefix(path, "/") {
-		path = filepath.Join(wd, path)
-	}
-
-	if _, err = os.Stat(path); os.IsNotExist(err) {
-		log.Printf("Path does not exist: %s", path)
-		panic(err)
-	}
-
-	log.Printf("Watching %s", path)
-	Run(path, command)
 }
 
-func Run(path string, command string) error {
-	chs := make(chan *moddwatch.Mod, 2)
+func Run(patterns []string, command string, debounce int) error {
+	chs := make(chan *moddwatch.Mod, 1024)
 
-	for {
-		watcher, err := moddwatch.Watch(
-			path,
-			[]string{"*"},
-			[]string{},
-			time.Millisecond*200,
-			chs,
-		)
-		if err != nil {
-			return err
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	watcher, err := moddwatch.Watch(
+		wd,
+		patterns,
+		[]string{},
+		time.Duration(debounce)*time.Millisecond,
+		chs,
+	)
+	if err != nil {
+		return err
+	}
+	defer watcher.Stop()
+
+	log.Println(">> start")
+	TimeTrigger(command)
+
+	for ch := range chs {
+		if ch == nil {
+			break
 		}
-		defer watcher.Stop()
+
+		paths := append(ch.Added, ch.Changed...)
+		log.Println(">> start")
+		PrintPaths(color.Green, "Changed/Added", paths)
+		PrintPaths(color.Red, "Deleted", ch.Deleted)
 
 		TimeTrigger(command)
+	}
 
-		for ch := range chs {
-			if ch == nil {
-				break
-			}
+	return nil
+}
 
-			TimeTrigger(command)
-		}
+func PrintPaths(fn func(string, ...interface{}), title string, paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+
+	if len(paths) > 10 {
+		PrintPaths(fn, title, paths[0:10])
+		fmt.Printf("Showing %d of %d", 10, len(paths))
+		return
+	}
+
+	fn(title)
+	for _, path := range paths {
+		fn("- " + path)
 	}
 }
 
 func TimeTrigger(command string) error {
 	start := time.Now()
+	fmt.Println("")
 	err := Trigger(command)
-	log.Println(">> done (%s)", time.Since(start))
-	return err
+	log.Printf(">> done: %s\n\n", time.Since(start))
+	if err != nil {
+		panic(err)
+	}
+	return nil
 }
 
 func Trigger(command string) error {
-	fmt.Println(command)
+	log.Printf("Running: %s", command)
 	cmd := exec.Command("sh", "-c", command)
 
 	stdo, err := cmd.StdoutPipe()
@@ -133,11 +147,20 @@ func Trigger(command string) error {
 	wg.Wait()
 
 	eret := cmd.Wait()
-
-	fmt.Printf("state %s\n", cmd.ProcessState.String())
 	fmt.Print(buff.String())
 
-	return eret
+	switch cmd.ProcessState.ExitCode() {
+	case 0:
+		color.Green(cmd.ProcessState.String())
+	default:
+		color.Red(cmd.ProcessState.String())
+	}
+
+	if err != nil {
+		fmt.Print(eret)
+	}
+
+	return nil
 }
 
 func logOutput(wg *sync.WaitGroup, fp io.ReadCloser, out func(string, ...interface{})) {

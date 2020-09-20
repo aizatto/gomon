@@ -12,7 +12,15 @@ I only want to re run the command on file system changes.
 # Example
 
 ```sh
-gomon watch <paths> -- <command>
+gomon --help
+```
+
+```sh
+gomon <paths> -- <command>
+```
+
+```
+gomon "**" -- go build .
 ```
 
 # Alternatives
