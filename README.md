@@ -7,6 +7,8 @@ Some problem with alternative watchers:
 - They rerun the command when the exit code is non zero
 - They are a task runner
 - Do not kill child processes
+- Ignore files in `.gitignore`
+  - Reread `.gitignore` if its changed
 
 I only want to re run the command on file system changes.
 
@@ -23,6 +25,10 @@ gomon <paths> -- <command>
 ```
 gomon "**" -- go build .
 ```
+
+# TODO
+
+[ ] Read `.gitignore` in subdirectories
 
 # Alternatives
 
@@ -41,12 +47,12 @@ gomon "**" -- go build .
 
 # Notes
 
-https://github.com/cortesi/moddwatch/blob/master/watch.go
-https://github.com/cortesi/modd/search?q=notify&unscoped_q=notify
-https://github.com/cortesi/modd/blob/06afa96cb8f7fa492c2eb649d1b569f77fa986f5/modd.go#L194
-https://gobyexample.com/channel-synchronization
-https://golang.org/pkg/os/exec/#Command
-https://gobyexample.com/command-line-flags
+- https://github.com/cortesi/moddwatch/blob/master/watch.go
+- https://github.com/cortesi/modd/search?q=notify&unscoped_q=notify
+- https://github.com/cortesi/modd/blob/06afa96cb8f7fa492c2eb649d1b569f77fa986f5/modd.go#L194
+- https://gobyexample.com/channel-synchronization
+- https://golang.org/pkg/os/exec/#Command
+- https://gobyexample.com/command-line-flags
 
 ## Killing Child Processes
 

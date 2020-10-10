@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -13,6 +14,9 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/cortesi/moddwatch"
 	"github.com/fatih/color"
+	"github.com/go-git/go-billy/osfs"
+	"github.com/go-git/go-git/plumbing/format/gitignore"
+	"github.com/pkg/errors"
 )
 
 var CLI struct {
@@ -48,7 +52,9 @@ func Run(patterns []string, command string, debounce int) error {
 	watcher, err := moddwatch.Watch(
 		wd,
 		patterns,
-		[]string{},
+		[]string{
+			".git/*",
+		},
 		time.Duration(debounce)*time.Millisecond,
 		chs,
 	)
@@ -68,7 +74,43 @@ func Run(patterns []string, command string, debounce int) error {
 		os.Exit(1)
 	}()
 
+	matcher, err := LoadGitignore()
+
 	for ch := range chs {
+		changedpaths := append(ch.Added, ch.Changed...)
+		allpaths := append(changedpaths, ch.Deleted...)
+
+		ruleschanged := false
+		for _, path := range allpaths {
+			if path == ".gitignore" || strings.HasSuffix(path, "/.gitignore") {
+				ruleschanged = true
+				break
+			}
+		}
+
+		if ruleschanged {
+			matcher, err = LoadGitignore()
+		}
+
+		PrintPaths(color.Green, "Changed/Added", changedpaths)
+		PrintPaths(color.Red, "Deleted", ch.Deleted)
+
+		if matcher != nil {
+			matcher := *matcher
+			run := false
+			for _, path := range allpaths {
+				if matcher.Match(filepath.SplitList(path), false) == false {
+					run = true
+					break
+				}
+			}
+
+			if !run {
+				log.Println(">> changed files are ignored by git")
+				continue
+			}
+		}
+
 		if cmd != nil {
 			KillProcessGroup(cmd)
 		}
@@ -77,15 +119,44 @@ func Run(patterns []string, command string, debounce int) error {
 			break
 		}
 
-		paths := append(ch.Added, ch.Changed...)
 		log.Println(">> start")
-		PrintPaths(color.Green, "Changed/Added", paths)
-		PrintPaths(color.Red, "Deleted", ch.Deleted)
 
 		cmd = TriggerCommand(command)
 	}
 
 	return nil
+}
+
+func LoadGitignore() (*gitignore.Matcher, error) {
+	dirs := GetGitignoreDirs()
+
+	var patterns []gitignore.Pattern
+	for _, dir := range dirs {
+		fs := osfs.New(dir)
+
+		patterns2, err := gitignore.ReadPatterns(fs, []string{})
+		if err != nil {
+			log.Println(errors.Wrapf(err, "Problem with dir: %s", dir))
+			continue
+		}
+		patterns = append(patterns, patterns2...)
+	}
+
+	matcher := gitignore.NewMatcher(patterns)
+	return &matcher, nil
+}
+
+func GetGitignoreDirs() []string {
+	dirs := []string{}
+
+	dir, err := os.Getwd()
+	if err == nil {
+		dirs = append(dirs, dir)
+	} else {
+		log.Println(errors.Wrap(err, "Unable to get current working directory"))
+	}
+
+	return dirs
 }
 
 // https://varunksaini.com/posts/kiling-processes-in-go/
@@ -107,7 +178,7 @@ func PrintPaths(fn func(string, ...interface{}), title string, paths []string) {
 
 	if len(paths) > 10 {
 		PrintPaths(fn, title, paths[0:10])
-		fmt.Printf("Showing %d of %d", 10, len(paths))
+		fmt.Printf("Showing %d of %d\n", 10, len(paths))
 		return
 	}
 
