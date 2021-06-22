@@ -7,6 +7,9 @@ Some problem with alternative watchers:
 - They rerun the command when the exit code is non zero
 - They are a task runner
 - Do not kill child processes
+
+Additional features in `gomon`:
+
 - Ignore files in `.gitignore`
   - Reread `.gitignore` if its changed
 
