@@ -1,4 +1,4 @@
-# Readme
+# gomon
 
 My goal was to build a filesystem monitor that only executed the command after a file system change.
 
@@ -14,6 +14,12 @@ Additional features in `gomon`:
   - Reread `.gitignore` if its changed
 
 I only want to re run the command on file system changes.
+
+# Installation
+
+```sh
+go install github.com/aizatto/gomon@latest
+```
 
 # Example
 
@@ -31,7 +37,7 @@ gomon "**" -- go build .
 
 # TODO
 
-[ ] Read `.gitignore` in subdirectories
+- [ ] Read `.gitignore` in subdirectories
 
 # Alternatives
 
